@@ -90,11 +90,6 @@ def scrape_products(url, config):
 
         return products
 
-
-import os
-import re
-
-
 def scrape_individual_product(url, config):
     content = fetch_page(url)
     if content:
@@ -113,7 +108,7 @@ def scrape_individual_product(url, config):
         price = price_element.text.strip() if price_element else "N/A"
 
         # Extracting image
-        image_element = soup.select_one('.attachment-large')
+        image_element = soup.select_one(config['image'])
         if image_element:
             image_url = image_element['src']
 
@@ -128,7 +123,7 @@ def scrape_individual_product(url, config):
         short_description = short_description_element["content"] if short_description_element else "N/A"
 
         # Extracting the long description
-        long_description_element = soup.select_one('.elementor-widget-wrap')
+        long_description_element = soup.select_one(config['long_description'])
         long_description = long_description_element.text.strip() if long_description_element else "N/A"
 
         # Downloading the image
