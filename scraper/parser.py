@@ -113,13 +113,9 @@ def scrape_individual_product(url, config):
         price = price_element.text.strip() if price_element else "N/A"
 
         # Extracting image
-        image_element = soup.select_one(config['image'])
-        if not image_element:
-            category_url = os.path.join(os.path.dirname(url), "product-category")
-            category_content = fetch_page(category_url)
-            if category_content:
-                category_soup = BeautifulSoup(category_content, 'html.parser')
-                image_element = category_soup.select_one(".attachment-woocommerce_thumbnail.size-woocommerce_thumbnail")
+        image_element = soup.select_one('.attachment-large')
+        if image_element:
+            image_url = image_element['src']
 
         # Removing any size pattern from the image URL
         if image_element:
