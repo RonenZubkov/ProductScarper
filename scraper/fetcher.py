@@ -58,16 +58,28 @@ def fetch_with_custom_user_agent(url):
         return None
 
 
-def fetch_page(url=BASE_URL, delay=5):
-    content = fetch_with_session(url, delay)
-    if content:
-        return content
+def fetch_page(url=BASE_URL):
+    with requests.Session() as session:
+        # Retry strategy
+        retry_strategy = Retry(
+            total=3,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "OPTIONS"]
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
 
-    content = fetch_directly(url)
-    if content:
-        return content
+        try:
+            time.sleep(5)  # Delay for 5 seconds
+            response = session.get(url, headers=HEADERS, timeout=TIMEOUT)
+            response.raise_for_status()
+            return response.text
+        except requests.Timeout:
+            logging.error(f"Timeout error for URL: {url}")
+        except requests.RequestException as e:
+            logging.error(f"Error fetching the page {url}. Error: {e}")
+        return None
 
-    content = fetch_with_custom_user_agent(url)
-    return content
 
 
