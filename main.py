@@ -13,8 +13,6 @@ def main():
             print(f"No categories found for {website}. Moving to the next website.")
             continue
 
-        print(categories)
-
         # Scrape products for each category
         all_products = []
         for category, sub_categories in categories.items():

@@ -42,9 +42,10 @@ def parse_content(url, config):
         logging.error(f"Failed to retrieve content from {url}.")
         return []
 
-def download_image(image_url, save_folder='downloaded_images'):
+def download_image(image_url ,save_folder='downloaded_images'):
     """Download an image from the given URL and save it to the specified folder."""
     try:
+        print('ImageUrl: ', image_url)
         response = requests.get(image_url, stream=True)
         response.raise_for_status()
 
@@ -54,7 +55,6 @@ def download_image(image_url, save_folder='downloaded_images'):
 
         # Use the original filename from the URL or generate one
         filename = os.path.join(save_folder, os.path.basename(image_url))
-
         with open(filename, 'wb') as file:
             for chunk in response.iter_content(chunk_size=8192):
                 file.write(chunk)
@@ -84,7 +84,6 @@ def scrape_products(url, config):
             if product_url_element:
                 product_url = product_url_element['href']
                 product_details = scrape_individual_product(product_url, config)
-                print(product_details)
                 if product_details:
                     products.append(product_details)
 
@@ -100,7 +99,7 @@ def scrape_individual_product(url, config):
         name = name_element.text.strip() if name_element else "N/A"
 
         # Extracting the entire content
-        whole_content_element = soup.select_one(config['whole_content'])
+        whole_content_element = soup.select(config['whole_content'])
         whole_content = whole_content_element.text.strip() if whole_content_element else "N/A"
 
         # Extracting price
@@ -123,15 +122,42 @@ def scrape_individual_product(url, config):
         short_description = short_description_element["content"] if short_description_element else "N/A"
 
         # Extracting the long description
-        long_description_element = soup.select_one(config['long_description'])
+        long_description_element = soup.select_one(config['whole_content'])
+        #print(long_description_element)
         long_description = long_description_element.text.strip() if long_description_element else "N/A"
 
         # Downloading the image
         image_path = None
         if image_url != "N/A":
-            file_extension = os.path.splitext(image_url)[1]
-            unique_filename = f"{name}_{int(time.time())}{file_extension}"
-            image_path = download_image(image_url, unique_filename)
+        #    file_extension = os.path.splitext(image_url)[1]
+        #    unique_filename = f"{name}_{int(time.time())}{file_extension}"
+        #    print('Image_Url: ', image_url, 'Unique_Name: ', unique_filename)
+            image_path = download_image(image_url)
+
+        container = soup.select_one('.elementor-text-editor.elementor-clearfix')
+        if container:
+            p_elements = container.find_all('p')
+            ul_elements = container.find_all('ul')
+
+            # Extracting text from p elements
+            p_texts = [p.text for p in p_elements]
+
+            # Extracting text from ul elements
+            ul_texts = []
+            for ul in ul_elements:
+                li_texts = [li.text for li in ul.find_all('li')]
+                ul_texts.append(li_texts)
+
+            # Combine p_texts and ul_texts
+            whole_content_data = {
+                'paragraphs': p_texts,
+                'lists': ul_texts
+            }
+        else:
+            whole_content_data = {
+                'paragraphs': [],
+                'lists': []
+            }
 
         return {
             'name': name,
