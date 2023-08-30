@@ -5,170 +5,196 @@ import os
 import requests
 import time
 import re
+from data.models.product import Product
 
-# scraper/parser.py
+from scraper.fetcher import web_driver_context
+import logging
+import os
+import re
+import time
 
-def parse_content(url, config):
-    content = fetch_page(url)
-    if content:
-        soup = BeautifulSoup(content, 'html.parser')
-        navbar_list = soup.select_one(config['navbar_list'])
-        if not navbar_list:
-            logging.error("Failed to find navbar list on the page.")
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+import requests
+from bs4 import BeautifulSoup
+
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+
+from scraper.fetcher import fetch_page
+from contextlib import contextmanager
+
+logging.basicConfig(level=logging.INFO)
+
+
+def parse_content(config):
+    with web_driver_context(config['base_url']) as driver:
+        all_products = []
+        try:
+            # Extract navbar links
+            navbar_links = extract_navbar_links(driver, config['navbar_item'])
+            logging.info(f"Found {len(navbar_links)} links in the navbar.")
+
+            for _, link in navbar_links:
+                # Navigate to the navbar link
+                logging.info(f"Processing link: {link}")
+                driver.get(link)
+
+                # Extract product URLs from the list of products
+                product_links = extract_product_links(driver, config['product_list'])
+                logging.info(f"Found {len(product_links)} product links on the page.")
+
+                for product_link in product_links:
+                    try:
+                        logging.info(f"Accessing product page: {product_link}")
+                        driver.get(product_link)
+                        product = extract_product_data(driver, config)
+                        if product:
+                            all_products.append(product)
+                            logging.info(f"Successfully extracted data for product: {product.name}")
+                    except Exception as e:
+                        logging.error(f"Error extracting data for product at {product_link}. Error: {e}")
+
+        except Exception as e:
+            logging.error(f"Error parsing content from {config['base_url']}. Error: {e}")
             return []
 
-        navbar_items = navbar_list.select(config['navbar_item'])
-        items = [(item.text.strip(), item.find('a')['href'] if item.find('a') else None) for item in navbar_items]  # Extracting both text and href
+        logging.info(f"Scraping completed. Total products extracted: {len(all_products)}")
+        return all_products
+def group_items(items):
+    """Group items based on their hierarchy."""
+    grouped_items = {}
+    parent_key = None
 
-        # Grouping items
-        grouped_items = {}
-        parent_key = None
-        for item_name, item_url in items:
-            if '\n' in item_name:  # This indicates a parent category with sub-categories
-                parent, *children = item_name.split('\n')
-                # Remove duplicates and empty strings
-                children = list(set(children))
-                children = [(child, item_url) for child in children if child]  # Pairing child with URL
-                if parent not in grouped_items:
-                    grouped_items[parent] = children
-                else:
-                    grouped_items[parent].extend((child, item_url) for child in children if child not in [existing_child[0] for existing_child in grouped_items[parent]])
-                parent_key = parent
-            elif parent_key and item_name not in [existing_child[0] for existing_child in grouped_items[parent_key]]:
+    for item_name, item_url in items:
+        if '\n' in item_name:
+            parent, *children = item_name.split('\n')
+            children = list(set(children))
+            children = [(child, item_url) for child in children if child]
+            if parent not in grouped_items:
+                grouped_items[parent] = children
+            else:
+                existing_children = [existing_child[0] for existing_child in grouped_items[parent]]
+                grouped_items[parent].extend((child, item_url) for child in children if child not in existing_children)
+            parent_key = parent
+        elif parent_key:
+            existing_children = [existing_child[0] for existing_child in grouped_items[parent_key]]
+            if item_name not in existing_children:
                 grouped_items[parent_key].append((item_name, item_url))
 
-        return grouped_items
-    else:
-        logging.error(f"Failed to retrieve content from {url}.")
-        return []
+    return grouped_items
 
-def download_image(image_url ,save_folder='downloaded_images'):
+def get_elements_by_selector(driver, selector):
+    """Return elements based on the provided CSS selector."""
+    return driver.find_elements(By.CSS_SELECTOR, selector)
+
+def extract_inner_html_and_href(elements):
+    """Extract and clean innerHTML and href attributes from a list of elements."""
+    return [
+        (
+            re.sub('<[^>]+>', '', element.get_attribute('innerHTML')).strip(),
+            element.get_attribute('href')
+        )
+        for element in elements if element.get_attribute('href')
+    ]
+
+def extract_category_from_product_element(product_element):
+    """Extract the category from a product element."""
+    try:
+        category_element = product_element.find_element(By.CSS_SELECTOR, '.jet-woo-product-categories a')
+        return category_element.text
+    except Exception as e:
+        logging.error(f"Error extracting category. Error: {e}")
+        return None
+
+def extract_product_links(driver, selector):
+    """Extract product URLs from the list of products."""
+    product_elements = driver.find_elements(By.CSS_SELECTOR, selector + ' .jet-woo-product-thumbnail a')
+    return [element.get_attribute('href') for element in product_elements]
+
+
+def extract_product_data(driver, config):
+    """Extract product data from a product element."""
+
+    def get_element_text(selector):
+        try:
+            return driver.find_element(By.CSS_SELECTOR, selector).text
+        except:
+            return "N/A"
+
+    def get_element_attribute(selector, attribute):
+        try:
+            return driver.find_element(By.CSS_SELECTOR, selector).get_attribute(attribute)
+        except:
+            return "N/A"
+
+    name = get_element_text(config['name'])
+    sku = get_element_text(config['SKU'])
+    short_description = get_element_text(config['short_description'])
+    long_description = get_element_text(config['long_description'])
+    image_url = get_element_attribute(config.get('image', ''), 'src')
+    price = get_element_text(config.get('price', ''))
+
+    return Product(name, sku, short_description, long_description, image_url, price)
+def download_image(image_url, website_name, save_folder='downloaded_images'):
     """Download an image from the given URL and save it to the specified folder."""
     try:
-        print('ImageUrl: ', image_url)
         response = requests.get(image_url, stream=True)
         response.raise_for_status()
 
-        # Create the save folder if it doesn't exist
-        if not os.path.exists(save_folder):
-            os.makedirs(save_folder)
+        directory_name = os.path.join(save_folder, website_name)
+        if not os.path.exists(directory_name):
+            os.makedirs(directory_name)
 
-        # Use the original filename from the URL or generate one
-        filename = os.path.join(save_folder, os.path.basename(image_url))
-        with open(filename, 'wb') as file:
+        file_extension = os.path.splitext(image_url)[1]
+        filename = f"{website_name}_{int(time.time())}{file_extension}"
+        filepath = os.path.join(save_folder, website_name, filename)
+
+        with open(filepath, 'wb') as file:
             for chunk in response.iter_content(chunk_size=8192):
                 file.write(chunk)
 
-        return filename  # Return path to saved image
+        return filepath
 
     except requests.RequestException as e:
-        print(f"Error downloading {image_url}. Error: {e}")
+        logging.error(f"Error downloading {image_url}. Error: {e}")
         return None
 
+def extract_navbar_links(driver, selector):
+    """Extract and clean navbar links."""
+    navbar_links = driver.find_elements(By.CSS_SELECTOR, selector)
+    return [
+        (re.sub('<[^>]+>', '', link.get_attribute('innerHTML')).strip(), link.get_attribute('href'))
+        for link in navbar_links if link.get_attribute('href')
+    ]
 
-def scrape_products(url, config):
-    logging.info(f"Starting scrape for URL: {url}")
+
+def extract_image_url(soup, config):
+    image_element = soup.select_one(config.get('image', ''))
+    if image_element:
+        return re.sub(r'-\d+x\d+', '', image_element['src'])
+    return "N/A"
 
 
-    products = []
-    content = fetch_page(url)
+def download_image_if_exists(image_url, website_name):
+    if image_url != "N/A":
+        return download_image(image_url, website_name)
+    return None
 
-    if content:
-        logging.info("Successfully fetched page content.")
-        soup = BeautifulSoup(content, 'html.parser')
-        product_elements = soup.select(config['product'])
-        logging.info(f"Found {len(product_elements)} product elements.")
 
-        for product_element in product_elements:
-            product_url_element = product_element.select_one('a')  # Assuming the first 'a' tag is the product URL
-            if product_url_element:
-                product_url = product_url_element['href']
-                product_details = scrape_individual_product(product_url, config)
-                if product_details:
-                    products.append(product_details)
+def extract_short_description(soup):
+    short_description_element = soup.find("meta", {"property": "og:description"})
+    return short_description_element["content"] if short_description_element else "N/A"
 
-        return products
 
-def scrape_individual_product(url, config):
-    content = fetch_page(url)
-    if content:
-        soup = BeautifulSoup(content, 'html.parser')
-
-        # Extracting the product name using h1
-        name_element = soup.select_one('h1')
-        name = name_element.text.strip() if name_element else "N/A"
-
-        # Extracting the entire content
-        whole_content_element = soup.select(config['whole_content'])
-        whole_content = whole_content_element.text.strip() if whole_content_element else "N/A"
-
-        # Extracting price
-        price_element = soup.select_one(config['price'])
-        price = price_element.text.strip() if price_element else "N/A"
-
-        # Extracting image
-        image_element = soup.select_one(config['image'])
-        if image_element:
-            image_url = image_element['src']
-
-        # Removing any size pattern from the image URL
-        if image_element:
-            image_url = re.sub(r'-\d+x\d+', '', image_element['src'])
-        else:
-            image_url = "N/A"
-
-        # Extracting short description
-        short_description_element = soup.find("meta", {"property": "og:description"})
-        short_description = short_description_element["content"] if short_description_element else "N/A"
-
-        # Extracting the long description
+def extract_long_description(soup, config):
+    if 'whole_content' in config:
         long_description_element = soup.select_one(config['whole_content'])
-        #print(long_description_element)
-        long_description = long_description_element.text.strip() if long_description_element else "N/A"
+        return long_description_element.text.strip() if long_description_element else "N/A"
+    return "N/A"
 
-        # Downloading the image
-        image_path = None
-        if image_url != "N/A":
-        #    file_extension = os.path.splitext(image_url)[1]
-        #    unique_filename = f"{name}_{int(time.time())}{file_extension}"
-        #    print('Image_Url: ', image_url, 'Unique_Name: ', unique_filename)
-            image_path = download_image(image_url)
 
-        container = soup.select_one('.elementor-text-editor.elementor-clearfix')
-        if container:
-            p_elements = container.find_all('p')
-            ul_elements = container.find_all('ul')
 
-            # Extracting text from p elements
-            p_texts = [p.text for p in p_elements]
 
-            # Extracting text from ul elements
-            ul_texts = []
-            for ul in ul_elements:
-                li_texts = [li.text for li in ul.find_all('li')]
-                ul_texts.append(li_texts)
-
-            # Combine p_texts and ul_texts
-            whole_content_data = {
-                'paragraphs': p_texts,
-                'lists': ul_texts
-            }
-        else:
-            whole_content_data = {
-                'paragraphs': [],
-                'lists': []
-            }
-
-        return {
-            'name': name,
-            'price': price,
-            'image_url': image_url,
-            'image_path': image_path,
-            'short_description': short_description,
-            'long_description': long_description,
-            'whole_content': whole_content,
-            'product_url': url
-        }
-    else:
-        logging.error(f"Failed to retrieve content from {url}.")
-        return None

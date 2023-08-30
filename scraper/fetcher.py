@@ -1,13 +1,18 @@
 import requests
 import logging
 from config.settings import BASE_URL, HEADERS, TIMEOUT
+from selenium.webdriver.chrome.service import Service
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import time
+import os
+
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 
 logging.basicConfig(level=logging.INFO)
 
-
+"""
 def create_session():
     session = requests.Session()
 
@@ -58,6 +63,12 @@ def fetch_with_custom_user_agent(url):
         return None
 
 
+
+"""
+
+
+"""
+
 def fetch_page(url=BASE_URL):
     with requests.Session() as session:
         # Retry strategy
@@ -71,7 +82,7 @@ def fetch_page(url=BASE_URL):
         session.mount("http://", adapter)
 
         try:
-            time.sleep(5)  # Delay for 5 seconds
+            time.sleep(2)  # Delay for 5 seconds
             response = session.get(url, headers=HEADERS, timeout=TIMEOUT)
             response.raise_for_status()
             return response.text
@@ -82,4 +93,34 @@ def fetch_page(url=BASE_URL):
         return None
 
 
+"""
+logging.basicConfig(level=logging.INFO)
+
+from contextlib import contextmanager
+
+@contextmanager
+def web_driver_context(url):
+
+    capabilities = {
+        'browserName': 'chrome',
+        'platform': 'ANY',
+        'version': '',
+    }
+
+    options = Options()
+    options.headless = True
+    options.set_capability("browserName", "chrome")
+    service = Service(executable_path=r'C:\Users\ronen\PycharmProjects\Product Scarper\bin\chromedriver.exe')
+    driver = webdriver.Chrome(service=service, options=options)
+
+    driver.get(url)
+    try:
+        yield driver
+    finally:
+        driver.quit()
+
+def fetch_page(url=BASE_URL):
+    print(f"Attempting to navigate to: {url}")
+    with web_driver_context(url) as driver:
+        return driver.page_source
 
