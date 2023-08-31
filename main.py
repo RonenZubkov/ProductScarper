@@ -66,7 +66,7 @@ def main():
             os.makedirs(directory_name)
 
         # Save the products to a CSV file inside the directory
-        save_to_csv(products, os.path.join(directory_name, "products.csv"))
+        save_to_csv(products, os.path.join('data\\raw_data', directory_name, "products.csv"))
 
 if __name__ == "__main__":
     main()

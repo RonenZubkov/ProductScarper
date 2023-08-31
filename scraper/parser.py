@@ -1,36 +1,17 @@
 import logging
-from bs4 import BeautifulSoup
-from scraper.fetcher import fetch_page
 import os
-import requests
-import time
 import re
-
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 import time
 
 from data.models.product import Product
-
 from scraper.fetcher import web_driver_context
-import logging
-import os
-import re
-import time
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 
 import requests
-from bs4 import BeautifulSoup
-
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-
-from scraper.fetcher import fetch_page
-from contextlib import contextmanager
 
 logging.basicConfig(level=logging.INFO)
 
@@ -38,30 +19,51 @@ logging.basicConfig(level=logging.INFO)
 def parse_content(config):
     with web_driver_context(config['base_url']) as driver:
         all_products = []
+        unique_product_links = set()
+
         try:
             # Extract navbar links
             navbar_links = extract_navbar_links(driver, config['navbar_item'])
             logging.info(f"Found {len(navbar_links)} links in the navbar.")
 
             for _, link in navbar_links:
-                # Navigate to the navbar link
                 logging.info(f"Processing link: {link}")
                 driver.get(link)
 
-                # Extract product URLs from the list of products
-                product_links = extract_product_links(driver, config['product_list'])
-                logging.info(f"Found {len(product_links)} product links on the page.")
+                while True:
+                    # Capture initial product links
+                    initial_product_links = extract_product_links(driver, config['product_list'])
 
-                for product_link in product_links:
+                    # Try to click the "next" button to load more products
                     try:
-                        #logging.info(f"Accessing product page: {product_link}")
-                        driver.get(product_link)
-                        product = extract_product_data(driver, config)
-                        if product:
-                            all_products.append(product)
-                            #logging.info(f"Successfully extracted data for product: {product.name}")
-                    except Exception as e:
-                        logging.error(f"Error extracting data for product at {product_link}. Error: {e}")
+                        next_button = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.CSS_SELECTOR, config['Load_More_Button'])))
+                        next_button.click()
+                        time.sleep(5)  # Adjust this based on how long it takes for products to load
+                    except TimeoutException:
+                        # If "next" button is not found, break out of the loop
+                        break
+
+                    # Capture new product links after products have loaded
+                    new_product_links = extract_product_links(driver, config['product_list'])
+
+                    # If the product links haven't changed, break out of the loop
+                    if set(initial_product_links) == set(new_product_links):
+                        break
+
+                    # Filter out duplicates and process new products
+                    unique_new_product_links = set(new_product_links) - unique_product_links
+                    unique_product_links.update(unique_new_product_links)
+
+                    logging.info(f"Found {len(unique_new_product_links)} new unique product links on the page.")
+
+                    for product_link in unique_new_product_links:
+                        try:
+                            driver.get(product_link)
+                            product = extract_product_data(driver, config)
+                            if product:
+                                all_products.append(product)
+                        except Exception as e:
+                            logging.error(f"Error extracting data for product at {product_link}. Error: {e}")
 
         except Exception as e:
             logging.error(f"Error parsing content from {config['base_url']}. Error: {e}")
@@ -69,6 +71,7 @@ def parse_content(config):
 
         logging.info(f"Scraping completed. Total products extracted: {len(all_products)}")
         return all_products
+
 def group_items(items):
     """Group items based on their hierarchy."""
     grouped_items = {}
@@ -174,7 +177,7 @@ def extract_navbar_links(driver, selector):
     navbar_links = driver.find_elements(By.CSS_SELECTOR, selector)
     return [
         (re.sub('<[^>]+>', '', link.get_attribute('innerHTML')).strip(), link.get_attribute('href'))
-        for link in navbar_links if link.get_attribute('href')
+        for link in navbar_links if link.get_attribute('href') and not link.get_attribute('href').endswith('#')
     ]
 
 
@@ -190,20 +193,32 @@ def download_image_if_exists(image_url, website_name):
         return download_image(image_url, website_name)
     return None
 
-def handle_load_more_button(driver, config):
-    """
-    Clicks the "Load More" button until all products are loaded.
-    """
-    try:
-        # Wait for the "Load More" button to be clickable
-        wait = WebDriverWait(driver, 10)
-        while True:
-            load_more_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, config['Load_More_Button'])))
-            load_more_button.click()
+
+def handle_pagination(driver, config):
+    """Clicks the "next" button until all products are loaded."""
+    previous_num_products = 0
+    while True:
+        try:
+            # Wait for the "next" button to be clickable
+            wait = WebDriverWait(driver, 10)
+            next_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, config['Load_More_Button'])))
+
+
+            # Check if the number of products has increased
+            current_num_products = len(driver.find_elements(By.CSS_SELECTOR, config['product_list']))
+            if current_num_products == previous_num_products:
+                logging.info("No new products loaded. Exiting pagination loop.")
+                break
+
+            next_button.click()
             # Wait for products to load after clicking the button
             time.sleep(5)  # Adjust this based on how long it takes for products to load
-    except Exception as e:
-        # Handle the exception (e.g., button not found, which means all products are loaded)
-        print(f"Finished loading products or encountered an error: {e}")
 
+            previous_num_products = current_num_products
 
+        except TimeoutException:
+            logging.info("Next button not found or not clickable. Exiting pagination loop.")
+            break
+        except Exception as e:
+            logging.error(f"Error while clicking the 'next' button: {e}")
+            break
