@@ -5,6 +5,12 @@ import os
 import requests
 import time
 import re
+
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import time
+
 from data.models.product import Product
 
 from scraper.fetcher import web_driver_context
@@ -48,12 +54,12 @@ def parse_content(config):
 
                 for product_link in product_links:
                     try:
-                        logging.info(f"Accessing product page: {product_link}")
+                        #logging.info(f"Accessing product page: {product_link}")
                         driver.get(product_link)
                         product = extract_product_data(driver, config)
                         if product:
                             all_products.append(product)
-                            logging.info(f"Successfully extracted data for product: {product.name}")
+                            #logging.info(f"Successfully extracted data for product: {product.name}")
                     except Exception as e:
                         logging.error(f"Error extracting data for product at {product_link}. Error: {e}")
 
@@ -135,6 +141,7 @@ def extract_product_data(driver, config):
     short_description = get_element_text(config['short_description'])
     long_description = get_element_text(config['long_description'])
     image_url = get_element_attribute(config.get('image', ''), 'src')
+    #print('long_description: ', long_description)
     price = get_element_text(config.get('price', ''))
 
     return Product(name, sku, short_description, long_description, image_url, price)
@@ -183,18 +190,20 @@ def download_image_if_exists(image_url, website_name):
         return download_image(image_url, website_name)
     return None
 
-
-def extract_short_description(soup):
-    short_description_element = soup.find("meta", {"property": "og:description"})
-    return short_description_element["content"] if short_description_element else "N/A"
-
-
-def extract_long_description(soup, config):
-    if 'whole_content' in config:
-        long_description_element = soup.select_one(config['whole_content'])
-        return long_description_element.text.strip() if long_description_element else "N/A"
-    return "N/A"
-
-
+def handle_load_more_button(driver, config):
+    """
+    Clicks the "Load More" button until all products are loaded.
+    """
+    try:
+        # Wait for the "Load More" button to be clickable
+        wait = WebDriverWait(driver, 10)
+        while True:
+            load_more_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, config['Load_More_Button'])))
+            load_more_button.click()
+            # Wait for products to load after clicking the button
+            time.sleep(5)  # Adjust this based on how long it takes for products to load
+    except Exception as e:
+        # Handle the exception (e.g., button not found, which means all products are loaded)
+        print(f"Finished loading products or encountered an error: {e}")
 
 
