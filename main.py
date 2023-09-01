@@ -1,12 +1,14 @@
-from scraper.parser import parse_content #,fetch_navbar_links
+from scraper.parser import parse_content
 from config.settings import WEBSITES
 from scraper.storage import save_to_csv
 import subprocess
 import psutil
 import os
+import argparse
 import requests
 from scraper.fetcher import web_driver_context
 from scraper.utils import save_to_csv
+from cli import list_websites, scrape_website, scrape_all_websites
 
 def is_chromedriver_running():
     """Check if ChromeDriver is running and return its PID."""
@@ -39,7 +41,6 @@ def test_chromedriver_connection():
         print(f"Error connecting to ChromeDriver: {e}")
 
 
-
 def main():
     chromedriver_pid = is_chromedriver_running()
     if not chromedriver_pid:
@@ -47,7 +48,23 @@ def main():
     else:
         print(f"ChromeDriver is already running with PID {chromedriver_pid}.")
 
-    for website, config in WEBSITES.items():
+    # Display available websites
+    print("Available websites to scrape:")
+    for idx, website in enumerate(WEBSITES.keys(), 1):
+        print(f"{idx}. {website}")
+    print(f"{len(WEBSITES) + 1}. All websites")
+
+    # Get user choice
+    choice = int(input("Enter the number of the website you want to scrape (or choose 'All websites'): "))
+
+    if choice == len(WEBSITES) + 1:  # User chose "All websites"
+        websites_to_scrape = WEBSITES.keys()
+    else:
+        selected_website = list(WEBSITES.keys())[choice - 1]
+        websites_to_scrape = [selected_website]
+
+    for website in websites_to_scrape:
+        config = WEBSITES[website]
         print(f"Scraping data for {website} using the following configuration: {config}")
 
         # Fetch navbar links
@@ -67,6 +84,7 @@ def main():
 
         # Save the products to a CSV file inside the directory
         save_to_csv(products, os.path.join('data\\raw_data', directory_name, "products.csv"))
+
 
 if __name__ == "__main__":
     main()

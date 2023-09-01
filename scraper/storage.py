@@ -1,10 +1,15 @@
-import csv
 import os
+import csv
 import requests
 
 def save_to_csv(data, filename="scraped_data.csv"):
-    # Define the path to save the file based on your project structure
-    save_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'raw_data', filename)
+    # Ensure the directory exists
+    directory = os.path.join(os.path.dirname(__file__), '..', 'data', 'raw_data')
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    # Define the path to save the file
+    save_path = os.path.join(directory, filename)
 
     with open(save_path, mode='w', newline='', encoding='utf-8-sig') as file:
         writer = csv.writer(file)
@@ -40,10 +45,14 @@ def save_to_csv(data, filename="scraped_data.csv"):
                     item.get('long_description', 'N/A')
                 ])
 
-
 def download_image(url, product_name):
     img_data = requests.get(url).content
-    image_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'product_images', f"{product_name}.jpg")
+    # Ensure the directory exists
+    directory = os.path.join(os.path.dirname(__file__), '..', 'data', 'product_images')
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    image_path = os.path.join(directory, f"{product_name}.jpg")
     with open(image_path, 'wb') as handler:
         handler.write(img_data)
     return url, image_path  # Return both the image URL and the path to the saved image
